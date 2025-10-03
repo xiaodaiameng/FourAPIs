@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>霍兰德职业兴趣测评</title>
+</head>
+<body>
+    <h1>霍兰德职业兴趣测评</h1>
+    
+    <div id="major-section">
+        <p>请输入您的专业：</p>
+        <input type="text" id="major-input">
+        <button onclick="startAssessment()">开始测评</button>
+    </div>
+    
+    <div id="questions-section" style="display: none;">
+        <form id="assessment-form">
+            <div id="questions-container"></div>
+            <button type="button" onclick="submitAssessment()">提交答案</button>
+        </form>
+    </div>
+    
+    <div id="results-section" style="display: none;">
+        <h2>测评结果</h2>
+        <p>您的专业：<span id="user-major"></span></p>
+        <p>您的主导特质：<span id="dominant-traits"></span></p>
+        <h3>推荐职业：</h3>
+        <ul id="recommended-careers"></ul>
+        <div id="report-details" style="margin-top: 20px;"></div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            let assessmentQuestions = [];
+            
+            function startAssessment() {
+                const major = document.getElementById('major-input').value;
+                if (!major) {
+                    alert('请输入您的专业');
+                    return;
+                }
+                
+                localStorage.setItem('userMajor', major);
+                
+                // 直接使用测评题目数据API
+                fetch('/api/assessment/questions')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('获取问题失败');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        assessmentQuestions = data;
+                        displayQuestions();
+                    })
+                    .catch(error => {
+                        console.error('获取问题失败:', error);
+                        alert('获取问题失败，请稍后再试');
+                    });
+            }
+            
+            function displayQuestions() {
+                const questionsContainer = document.getElementById('questions-container');
+                questionsContainer.innerHTML = '';
+                
+                assessmentQuestions.forEach(question => {
+                    const questionDiv = document.createElement('div');
+                    questionDiv.innerHTML = `
+                        <p>${question.id}. ${question.question}</p>
+                    `;
+                    
+                    question.options.forEach(option => {
+                        const optionLabel = document.createElement('label');
+                        optionLabel.innerHTML = `
+                            <input type="radio" name="question-${question.id}" value="${option.id}" required>
+                            ${option.text}
+                        `;
+                        questionDiv.appendChild(optionLabel);
+                        questionDiv.appendChild(document.createElement('br'));
+                    });
+                    
+                    questionsContainer.appendChild(questionDiv);
+                    questionsContainer.appendChild(document.createElement('hr'));
+                });
+                
+                document.getElementById('major-section').style.display = 'none';
+                document.getElementById('questions-section').style.display = 'block';
+            }
+            
+            function submitAssessment() {
+                const form = document.getElementById('assessment-form');
+                const answers = [];
+                let isValid = true;
+                
+                // 收集答案并验证
+                assessmentQuestions.forEach(question => {
+                    const selectedOption = form.querySelector(`input[name="question-${question.id}"]:checked`);
+                    if (!selectedOption) {
+                        isValid = false;
+                        return;
+                    }
+                    
+                    answers.push({
+                        question_id: question.id,
+                        option_id: selectedOption.value
+                    });
+                });
+                
+                if (!isValid) {
+                    alert('请回答所有问题');
+                    return;
+                }
+                
+                const major = localStorage.getItem('userMajor');
+                const requestData = {
+                    major: major,
+                    answers: answers
+                };
+                
+                // 使用测评结果计算API
+                fetch('/api/assessment/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestData)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('提交答案失败');
+                    }
+                    return response.json();
+                })
+                .then(result => {
+                    displayResults({result: result});
+                })
+                .catch(error => {
+                    console.error('提交答案失败:', error);
+                    alert('提交答案失败，请稍后再试');
+                });
+            }
+            
+            function displayResults(results) {
+                // 标准化结果格式
+                const normalizedResult = results.result || results;
+                
+                document.getElementById('user-major').textContent = normalizedResult.user_major;
+                
+                const dominantTraits = normalizedResult.dominant_traits;
+                document.getElementById('dominant-traits').textContent = Array.isArray(dominantTraits) ? dominantTraits.join(', ') : dominantTraits;
+                
+                const careersList = document.getElementById('recommended-careers');
+                careersList.innerHTML = '';
+                
+                const recommendedCareers = normalizedResult.recommended_careers;
+                recommendedCareers.forEach(career => {
+                    const li = document.createElement('li');
+                    li.textContent = `${career.career} - ${career.description}`;
+                    careersList.appendChild(li);
+                });
+                if (results.report_sections) {
+                    const detailsContainer = document.getElementById('report-details');
+                    detailsContainer.innerHTML = '<h3>详细报告:</h3>';
+                    
+                    results.report_sections.forEach(section => {
+                        const sectionDiv = document.createElement('div');
+                        sectionDiv.className = 'report-section';
+                        
+                        const sectionTitle = document.createElement('h4');
+                        sectionTitle.textContent = section.title;
+                        sectionDiv.appendChild(sectionTitle);
+                        
+                        const sectionContent = document.createElement('p');
+                        sectionContent.textContent = section.content;
+                        sectionDiv.appendChild(sectionContent);
+                        
+                        detailsContainer.appendChild(sectionDiv);
+                    });
+                }
+                
+                document.getElementById('questions-section').style.display = 'none';
+                document.getElementById('results-section').style.display = 'block';
+            }
+            
+            // 全局函数，供HTML调用
+            window.startAssessment = startAssessment;
+            window.submitAssessment = submitAssessment;
+        });
+    </script>
+</body>
+</html>
